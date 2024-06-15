@@ -1,0 +1,194 @@
+package web
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+)
+
+const ANY = "ANY"
+
+type HandlerFunc func(ctx *Context) // 定义函数类型
+
+type MiddlewareFunc func(handler HandlerFunc) HandlerFunc //定义中间件函数类型
+
+type router struct {
+	groups []*routerGroup
+}
+
+func (r *router) Group(name string) *routerGroup {
+	g := &routerGroup{
+		groupName:          name,
+		handlerMap:         make(map[string]map[string]HandlerFunc),
+		middlewaresFuncMap: make(map[string]map[string][]MiddlewareFunc),
+		handlerMethodMap:   make(map[string][]string),
+		treeNode:           &treeNode{name: "/", children: make([]*treeNode, 0)},
+	}
+	r.groups = append(r.groups, g)
+	return g
+}
+
+func (r *routerGroup) handle(name string, method string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	// 检查 handlerMap 中是否已存在指定名称的路由
+	_, ok := r.handlerMap[name]
+	if !ok {
+		// 如果不存在，初始化一个新的 map
+		r.handlerMap[name] = make(map[string]HandlerFunc)
+		r.middlewaresFuncMap[name] = make(map[string][]MiddlewareFunc)
+	}
+	_, ok = r.handlerMap[name][method]
+	if ok {
+		panic("有重复路由")
+	}
+	// 将处理函数存储在 handlerMap 中
+	r.handlerMap[name][method] = handlerFunc
+	// 将路由名称添加到 handlerMethodMap 中
+	r.middlewaresFuncMap[name][method] = append(r.middlewaresFuncMap[name][method], middlewareFunc...)
+	// 将路由名称插入到 treeNode 中，以便进行路由匹配
+	r.treeNode.Put(name)
+}
+
+func (r *routerGroup) Use(middlewares ...MiddlewareFunc) {
+	r.middlewares = append(r.middlewares, middlewares...)
+}
+
+func (r *routerGroup) Any(name string, handlerFunc HandlerFunc) {
+	r.handle(name, "ANY", handlerFunc)
+}
+
+func (r *routerGroup) Handle(name string, method string, handlerFunc HandlerFunc) {
+	//method有效性做校验
+	r.handle(name, method, handlerFunc)
+}
+
+func (r *routerGroup) Get(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodGet, handlerFunc, middlewareFunc...)
+}
+func (r *routerGroup) Post(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodPost, handlerFunc, middlewareFunc...)
+}
+func (r *routerGroup) Delete(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodDelete, handlerFunc, middlewareFunc...)
+}
+func (r *routerGroup) Put(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodPut, handlerFunc, middlewareFunc...)
+}
+func (r *routerGroup) Patch(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodPatch, handlerFunc, middlewareFunc...)
+}
+func (r *routerGroup) Options(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodOptions, handlerFunc, middlewareFunc...)
+}
+func (r *routerGroup) Head(name string, handlerFunc HandlerFunc, middlewareFunc ...MiddlewareFunc) {
+	r.handle(name, http.MethodHead, handlerFunc, middlewareFunc...)
+}
+
+// methodHandle 处理中间件逻辑
+func (r *routerGroup) methodHandle(name string, method string, h HandlerFunc, ctx *Context) {
+	//通用中间件
+	if r.middlewares != nil {
+		for _, middlewareFunc := range r.middlewares {
+			h = middlewareFunc(h)
+		}
+	}
+	//组路由级别
+	funcMidis := r.middlewaresFuncMap[name][method]
+	if funcMidis != nil {
+		for _, middlewareFunc := range funcMidis {
+			h = middlewareFunc(h)
+		}
+	}
+	h(ctx)
+}
+
+// routerGroup 表示一组路由及其处理函数
+type routerGroup struct {
+	// groupName 是路由组的名称或前缀，用于组织和管理路由
+	groupName string
+	// handlerMap 是一个多级映射，保存每个路由和 HTTP 方法对应的处理函数
+	// 第一层键是路由路径，第二层键是 HTTP 方法 (如 "GET", "POST")，值是相应的处理函数
+	handlerMap map[string]map[string]HandlerFunc
+	// middlewaresFuncMap 是一个多级映射，保存每个路由和 HTTP 方法对应的中间件函数
+	middlewaresFuncMap map[string]map[string][]MiddlewareFunc
+	// handlerMethodMap 保存每个路由路径支持的 HTTP 方法列表
+	// 键是路由路径，值是该路径支持的 HTTP 方法的切片
+	handlerMethodMap map[string][]string
+	// treeNode 是该路由组的树节点，用于存储路由树结构，实现高效路由匹配
+	treeNode *treeNode
+	//路由中间件集合
+	middlewares []MiddlewareFunc
+}
+
+type Engine struct {
+	*router
+}
+
+func New() *Engine {
+	return &Engine{
+		&router{},
+	}
+}
+
+func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	e.httpRequestHandler(w, r)
+}
+
+// Run 启动 HTTP 服务器，监听指定的端口
+func (e *Engine) Run(port int) {
+	// 将根 URL ("/") 与当前的 Engine 实例关联，这样所有的请求都会由该实例处理
+	http.Handle("/", e)
+
+	// 使用指定的端口启动 HTTP 服务器
+	// strconv.Itoa(port) 将端口号转换为字符串形式，组合成 ":port" 格式的地址
+	err := http.ListenAndServe(":"+strconv.Itoa(port), nil)
+
+	// 如果启动服务器时发生错误，记录并终止程序
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (e *Engine) httpRequestHandler(w http.ResponseWriter, r *http.Request) {
+	// 获取请求的方法 (GET, POST, etc.)
+	method := r.Method
+	// 遍历所有路由组
+	for _, group := range e.groups {
+		// 获取路由名，这里使用了自定义的函数 SubStringLast
+		// 比如：从请求URI中提取路由组的名称
+		routerName := SubStringLast(r.RequestURI, "/"+group.groupName)
+		// 获取匹配的路由节点
+		node := group.treeNode.Get(routerName)
+		if node != nil && node.isEnd {
+			// 如果路由匹配上了，创建一个上下文对象
+			ctx := &Context{
+				W: w,
+				R: r,
+			}
+			// 尝试获取通配符(ANY)的处理函数
+			handle, ok := group.handlerMap[node.routerName][ANY]
+			if ok {
+				// 如果找到了通配符处理函数，调用并返回
+				group.methodHandle(node.routerName, ANY, handle, ctx)
+				return
+			}
+			// 尝试获取具体方法(GET, POST等)的处理函数
+			handle, ok = group.handlerMap[node.routerName][method]
+			if ok {
+				// 如果找到了具体方法的处理函数，调用并返回
+				group.methodHandle(node.routerName, method, handle, ctx)
+				return
+			}
+			// 如果没有找到匹配的处理函数，返回405 Method Not Allowed
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			fmt.Fprintf(w, "%s %s not allowed \n", r.RequestURI, method)
+			return
+		}
+	}
+	// 如果没有匹配的路由，返回404 Not Found
+	w.WriteHeader(http.StatusNotFound)
+	_, err := fmt.Fprintf(w, "%s  not found \n", r.RequestURI)
+	if err != nil {
+		return
+	}
+}
