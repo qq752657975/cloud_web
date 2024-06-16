@@ -2,9 +2,12 @@ package web
 
 import (
 	"fmt"
+	"github.com/ygb616/web/render"
+	"html/template"
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 )
 
 const ANY = "ANY"
@@ -122,16 +125,45 @@ type routerGroup struct {
 
 type Engine struct {
 	*router
+	funcMap    template.FuncMap
+	HTMLRender render.HTMLRender
+	pool       sync.Pool
 }
 
 func New() *Engine {
-	return &Engine{
-		&router{},
+	e := &Engine{
+		router: &router{},
 	}
+	e.pool.New = func() any {
+		return e.allocateContext()
+	}
+	return e
+}
+
+func (e *Engine) allocateContext() any {
+	return &Context{E: e}
+}
+
+func (e *Engine) SetFuncMap(funcMap template.FuncMap) {
+	e.funcMap = funcMap
+}
+
+// LoadTemplate LoadTemplateGlob 加载所有模板
+func (e *Engine) LoadTemplate(pattern string) {
+	t := template.Must(template.New("").Funcs(e.funcMap).ParseGlob(pattern))
+	e.SetHtmlTemplate(t)
+}
+
+func (e *Engine) SetHtmlTemplate(t *template.Template) {
+	e.HTMLRender = render.HTMLRender{Template: t}
 }
 
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	e.httpRequestHandler(w, r)
+	ctx := e.pool.Get().(*Context)
+	ctx.W = w
+	ctx.R = r
+	e.httpRequestHandler(ctx, w, r)
+	e.pool.Put(ctx)
 }
 
 // Run 启动 HTTP 服务器，监听指定的端口
@@ -149,22 +181,17 @@ func (e *Engine) Run(port int) {
 	}
 }
 
-func (e *Engine) httpRequestHandler(w http.ResponseWriter, r *http.Request) {
+func (e *Engine) httpRequestHandler(ctx *Context, w http.ResponseWriter, r *http.Request) {
 	// 获取请求的方法 (GET, POST, etc.)
 	method := r.Method
 	// 遍历所有路由组
 	for _, group := range e.groups {
 		// 获取路由名，这里使用了自定义的函数 SubStringLast
 		// 比如：从请求URI中提取路由组的名称
-		routerName := SubStringLast(r.RequestURI, "/"+group.groupName)
+		routerName := SubStringLast(r.URL.Path, "/"+group.groupName)
 		// 获取匹配的路由节点
 		node := group.treeNode.Get(routerName)
 		if node != nil && node.isEnd {
-			// 如果路由匹配上了，创建一个上下文对象
-			ctx := &Context{
-				W: w,
-				R: r,
-			}
 			// 尝试获取通配符(ANY)的处理函数
 			handle, ok := group.handlerMap[node.routerName][ANY]
 			if ok {
