@@ -3,7 +3,13 @@ package main
 import (
 	"fmt"
 	"github.com/ygb616/web"
+	"log"
+	"net/http"
 )
+
+type User struct {
+	Name string
+}
 
 func Log(next web.HandlerFunc) web.HandlerFunc {
 	return func(ctx *web.Context) {
@@ -28,8 +34,31 @@ func main() {
 		fmt.Println("测试get方法")
 		fmt.Fprintf(ctx.W, "测试get方法")
 	}, Log)
-	g.Get("/get/*/hello", func(ctx *web.Context) {
-		fmt.Fprintf(ctx.W, "测试中间*方法")
+	g.Get("/hello", func(ctx *web.Context) {
+		err := ctx.HTML(http.StatusOK, "<h1>你好 go微服务框架</h1>")
+		if err != nil {
+			panic(err)
+		}
+	})
+
+	g.Get("/htmlTemplate", func(ctx *web.Context) {
+		user := User{
+			Name: "ygb616",
+		}
+		err := ctx.HTMLTemplate("login.html", user, "tpl/login.html", "tpl/header.html")
+		if err != nil {
+			log.Println(err)
+		}
+	})
+
+	g.Get("/htmlTemplateGlob", func(ctx *web.Context) {
+		user := User{
+			Name: "ygb616",
+		}
+		err := ctx.HTMLTemplateGlob("login.html", user, "tpl/*.html")
+		if err != nil {
+			log.Println(err)
+		}
 	})
 
 	engine.Run(8111)
