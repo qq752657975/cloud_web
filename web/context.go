@@ -1,18 +1,23 @@
 package web
 
 import (
+	"errors"
 	"github.com/ygb616/web/render"
 	"html/template"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 )
+
+const defaultMultipartMemory = 30 << 20 //30M
 
 type Context struct {
 	W          http.ResponseWriter
 	R          *http.Request
 	E          *Engine
 	queryCache url.Values
+	formCache  url.Values
 }
 
 func (c *Context) initQueryCache() {
@@ -79,6 +84,47 @@ func (c *Context) get(m map[string][]string, key string) (map[string]string, boo
 		}
 	}
 	return dicts, exist
+}
+
+func (c *Context) initFormCache() {
+	if c.formCache == nil {
+		c.formCache = make(url.Values)
+		req := c.R
+		if err := req.ParseMultipartForm(defaultMultipartMemory); err != nil {
+			if !errors.Is(err, http.ErrNotMultipart) {
+				log.Println(err)
+			}
+		}
+		c.formCache = c.R.PostForm
+	}
+}
+
+func (c *Context) GetPostForm(key string) (string, bool) {
+	if values, ok := c.GetPostFormArray(key); ok {
+		return values[0], ok
+	}
+	return "", false
+}
+
+func (c *Context) PostFormArray(key string) (values []string) {
+	values, _ = c.GetPostFormArray(key)
+	return
+}
+
+func (c *Context) GetPostFormArray(key string) (values []string, ok bool) {
+	c.initFormCache()
+	values, ok = c.formCache[key]
+	return
+}
+
+func (c *Context) GetPostFormMap(key string) (map[string]string, bool) {
+	c.initFormCache()
+	return c.get(c.formCache, key)
+}
+
+func (c *Context) PostFormMap(key string) (dicts map[string]string) {
+	dicts, _ = c.GetPostFormMap(key)
+	return
 }
 
 func (c *Context) HTMLTemplate(name string, data any, filenames ...string) error {
