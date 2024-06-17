@@ -1,7 +1,8 @@
-package web
+package log
 
 import (
 	"fmt"
+	"github.com/ygb616/web"
 	"io"
 	"net"
 	"net/http"
@@ -28,6 +29,7 @@ const (
 	reset     = "\033[0m"
 )
 
+var IsDisplayColor = true
 var DefaultWriter io.Writer = os.Stdout
 
 type LogFormatterParams struct {
@@ -71,7 +73,7 @@ type LoggingConfig struct {
 	out       io.Writer
 }
 
-func LoggingWithConfig(conf LoggingConfig, next HandlerFunc) HandlerFunc {
+func LoggingWithConfig(conf LoggingConfig, next web.HandlerFunc) web.HandlerFunc {
 	_ = fmt.Sprintf("%#v", red)
 	formatter := conf.Formatter
 	if formatter == nil {
@@ -81,10 +83,10 @@ func LoggingWithConfig(conf LoggingConfig, next HandlerFunc) HandlerFunc {
 	if out == nil {
 		out = DefaultWriter
 	}
-	return func(ctx *Context) {
+	return func(ctx *web.Context) {
 		param := LogFormatterParams{
 			Request:        ctx.R,
-			IsDisplayColor: true,
+			IsDisplayColor: IsDisplayColor,
 		}
 		// Start timer
 		start := time.Now()
@@ -131,6 +133,6 @@ func (p *LogFormatterParams) StatusCodeColor() string {
 	}
 }
 
-func Logging(next HandlerFunc) HandlerFunc {
+func Logging(next web.HandlerFunc) web.HandlerFunc {
 	return LoggingWithConfig(LoggingConfig{}, next)
 }

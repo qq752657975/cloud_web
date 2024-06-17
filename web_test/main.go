@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/ygb616/web"
+	myLog "github.com/ygb616/web/log"
 	"log"
 	"net/http"
 )
@@ -24,7 +25,7 @@ func Log(next web.HandlerFunc) web.HandlerFunc {
 func main() {
 	engine := web.New()
 	g := engine.Group("user")
-	g.Use(web.Logging)
+	g.Use(myLog.Logging)
 	g.Use(func(nextHandler web.HandlerFunc) web.HandlerFunc {
 		return func(ctx *web.Context) {
 			fmt.Println("pre handler")
@@ -129,11 +130,15 @@ func main() {
 			log.Println(err)
 		}
 	})
-
+	logger := myLog.Default()
+	logger.Level = myLog.LevelInfo
 	g.Post("/xmlParam", func(ctx *web.Context) {
 		user := &User{}
 		//user := User{}
 		err := ctx.BindXML(user)
+		logger.Debug("我是Debug")
+		logger.Info("我是Info")
+		logger.Error("我是Error")
 		if err == nil {
 			err := ctx.JSON(http.StatusOK, user)
 			if err != nil {
