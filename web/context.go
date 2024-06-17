@@ -2,22 +2,66 @@ package web
 
 import (
 	"errors"
+	"github.com/ygb616/web/binding"
 	"github.com/ygb616/web/render"
 	"html/template"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
 const defaultMultipartMemory = 30 << 20 //30M
 
 type Context struct {
-	W          http.ResponseWriter
-	R          *http.Request
-	E          *Engine
-	queryCache url.Values
-	formCache  url.Values
+	W                     http.ResponseWriter
+	R                     *http.Request
+	E                     *Engine
+	queryCache            url.Values
+	formCache             url.Values
+	DisallowUnknownFields bool
+	IsValidate            bool
+}
+
+func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
+	req := c.R
+	if err := req.ParseMultipartForm(defaultMultipartMemory); err != nil {
+		return nil, err
+	}
+	file, header, err := req.FormFile(name)
+	if err != nil {
+		return nil, err
+	}
+	err = file.Close()
+	if err != nil {
+		return nil, err
+	}
+	return header, nil
+}
+
+func (c *Context) SaveUploadedFile(file *multipart.FileHeader, dst string) error {
+	src, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, src)
+	return err
+}
+
+func (c *Context) MultipartForm() (*multipart.Form, error) {
+	err := c.R.ParseMultipartForm(defaultMultipartMemory)
+	return c.R.MultipartForm, err
 }
 
 func (c *Context) initQueryCache() {
@@ -213,4 +257,27 @@ func (c *Context) Render(statusCode int, r render.Render) error {
 	err := r.Render(c.W, statusCode)
 	//多次调用 WriteHeader 就会产生这样的警告 superfluous response.WriteHeader
 	return err
+}
+
+func (c *Context) BindJson(data any) error {
+	json := binding.JSON
+	json.DisallowUnknownFields = true
+	json.IsValidate = true
+	return c.MustBindWith(data, &json)
+}
+
+func (c *Context) MustBindWith(data any, bind binding.Binding) error {
+	if err := c.ShouldBind(data, bind); err != nil {
+		c.W.WriteHeader(http.StatusBadRequest)
+		return err
+	}
+	return nil
+}
+
+func (c *Context) ShouldBind(data any, bind binding.Binding) error {
+	return bind.Bind(c.R, data)
+}
+
+func (c *Context) BindXML(data any) error {
+	return c.MustBindWith(data, binding.XML)
 }

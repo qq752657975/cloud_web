@@ -8,7 +8,9 @@ import (
 )
 
 type User struct {
-	Name string `xml:"name"`
+	Name      string   `xml:"name" json:"name" web:"required"`
+	Age       int      `xml:"age" json:"age" validate:"required,max=50,min=18"`
+	Addresses []string `json:"addresses"`
 }
 
 func Log(next web.HandlerFunc) web.HandlerFunc {
@@ -110,6 +112,35 @@ func main() {
 	g.Get("/string", func(ctx *web.Context) {
 		ctx.String(http.StatusOK, "%s 是由 %s 制作 \n", "goweb框架", "go微服务框架")
 
+	})
+
+	g.Post("/formPost", func(ctx *web.Context) {
+		data, _ := ctx.GetPostForm("name")
+		ctx.JSON(http.StatusOK, data)
+	})
+
+	g.Post("/jsonParam", func(ctx *web.Context) {
+		user := &User{}
+		err := ctx.BindJson(user)
+		if err == nil {
+			ctx.JSON(http.StatusOK, user)
+		} else {
+			log.Println(err)
+		}
+	})
+
+	g.Post("/xmlParam", func(ctx *web.Context) {
+		user := &User{}
+		//user := User{}
+		err := ctx.BindXML(user)
+		if err == nil {
+			err := ctx.JSON(http.StatusOK, user)
+			if err != nil {
+				return
+			}
+		} else {
+			log.Println(err)
+		}
 	})
 
 	engine.Run(8111)
