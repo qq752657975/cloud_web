@@ -24,6 +24,7 @@ func Log(next web.HandlerFunc) web.HandlerFunc {
 func main() {
 	engine := web.New()
 	g := engine.Group("user")
+	g.Use(web.Logging)
 	g.Use(func(nextHandler web.HandlerFunc) web.HandlerFunc {
 		return func(ctx *web.Context) {
 			fmt.Println("pre handler")

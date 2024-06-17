@@ -24,6 +24,7 @@ type Context struct {
 	formCache             url.Values
 	DisallowUnknownFields bool
 	IsValidate            bool
+	StatusCode            int
 }
 
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
@@ -255,6 +256,7 @@ func (c *Context) String(status int, format string, values ...any) error {
 func (c *Context) Render(statusCode int, r render.Render) error {
 	//如果设置了statusCode，对header的修改就不生效了
 	err := r.Render(c.W, statusCode)
+	c.StatusCode = statusCode
 	//多次调用 WriteHeader 就会产生这样的警告 superfluous response.WriteHeader
 	return err
 }
