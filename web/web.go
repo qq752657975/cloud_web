@@ -2,7 +2,9 @@ package web
 
 import (
 	"fmt"
+	myLog "github.com/ygb616/web/log"
 	"github.com/ygb616/web/render"
+	"github.com/ygb616/web/util"
 	"html/template"
 	"log"
 	"net/http"
@@ -18,6 +20,7 @@ type MiddlewareFunc func(handler HandlerFunc) HandlerFunc //定义中间件函�
 
 type router struct {
 	groups []*routerGroup
+	engine *Engine
 }
 
 func (r *router) Group(name string) *routerGroup {
@@ -28,6 +31,7 @@ func (r *router) Group(name string) *routerGroup {
 		handlerMethodMap:   make(map[string][]string),
 		treeNode:           &treeNode{name: "/", children: make([]*treeNode, 0)},
 	}
+	g.Use(r.engine.Middles...)
 	r.groups = append(r.groups, g)
 	return g
 }
@@ -123,21 +127,43 @@ type routerGroup struct {
 	middlewares []MiddlewareFunc
 }
 
+type ErrorHandler func(err error) (int, any)
+
 type Engine struct {
 	*router
-	funcMap    template.FuncMap
-	HTMLRender render.HTMLRender
-	pool       sync.Pool
+	funcMap      template.FuncMap
+	HTMLRender   render.HTMLRender
+	pool         sync.Pool
+	Logger       *myLog.Logger
+	Middles      []MiddlewareFunc
+	errorHandler ErrorHandler
 }
 
 func New() *Engine {
-	e := &Engine{
-		router: &router{},
+	r := &router{}
+	engine := &Engine{
+		router:     r,
+		funcMap:    nil,
+		HTMLRender: render.HTMLRender{},
+		Logger:     myLog.Default(),
 	}
-	e.pool.New = func() any {
-		return e.allocateContext()
+	engine.pool.New = func() any {
+		return engine.allocateContext()
 	}
-	return e
+	r.engine = engine
+	return engine
+}
+
+func Default() *Engine {
+	engine := New()
+	engine.Logger = myLog.Default()
+	engine.Use(Recovery, Logging)
+	engine.router.engine = engine
+	return engine
+}
+
+func (e *Engine) Use(middles ...MiddlewareFunc) {
+	e.Middles = middles
 }
 
 func (e *Engine) allocateContext() any {
@@ -162,6 +188,7 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := e.pool.Get().(*Context)
 	ctx.W = w
 	ctx.R = r
+	ctx.Logger = e.Logger
 	e.httpRequestHandler(ctx, w, r)
 	e.pool.Put(ctx)
 }
@@ -188,7 +215,7 @@ func (e *Engine) httpRequestHandler(ctx *Context, w http.ResponseWriter, r *http
 	for _, group := range e.groups {
 		// 获取路由名，这里使用了自定义的函数 SubStringLast
 		// 比如：从请求URI中提取路由组的名称
-		routerName := SubStringLast(r.URL.Path, "/"+group.groupName)
+		routerName := util.SubStringLast(r.URL.Path, "/"+group.groupName)
 		// 获取匹配的路由节点
 		node := group.treeNode.Get(routerName)
 		if node != nil && node.isEnd {
@@ -218,4 +245,13 @@ func (e *Engine) httpRequestHandler(ctx *Context, w http.ResponseWriter, r *http
 	if err != nil {
 		return
 	}
+}
+
+func (c *Context) ErrorHandle(err error) {
+	code, data := c.E.errorHandler(err)
+	_ = c.JSON(code, data)
+}
+
+func (e *Engine) RegisterErrorHandler(err ErrorHandler) {
+	e.errorHandler = err
 }

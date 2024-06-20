@@ -1,12 +1,49 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/ygb616/web"
 	myLog "github.com/ygb616/web/log"
 	"log"
 	"net/http"
 )
+
+type BlogResponse struct {
+	Success bool
+	Code    int
+	Data    any
+	Msg     string
+}
+type BlogNoDataResponse struct {
+	Success bool
+	Code    int
+	Msg     string
+}
+
+func (b *BlogResponse) Error() string {
+	return b.Msg
+}
+
+func (b *BlogResponse) Response(success bool, code int, msg string) any {
+	if b.Data == nil {
+		return &BlogNoDataResponse{
+			Success: success,
+			Code:    code,
+			Msg:     msg,
+		}
+	}
+	return b
+}
+
+func login() *BlogResponse {
+	return &BlogResponse{
+		Success: false,
+		Code:    -999,
+		Data:    nil,
+		Msg:     "账号密码错误",
+	}
+}
 
 type User struct {
 	Name      string   `xml:"name" json:"name" web:"required"`
@@ -23,21 +60,25 @@ func Log(next web.HandlerFunc) web.HandlerFunc {
 }
 
 func main() {
-	engine := web.New()
-	g := engine.Group("user")
-	g.Use(myLog.Logging)
-	g.Use(func(nextHandler web.HandlerFunc) web.HandlerFunc {
-		return func(ctx *web.Context) {
-			fmt.Println("pre handler")
-			nextHandler(ctx)
-			fmt.Println("post handler")
+	engine := web.Default()
+	engine.RegisterErrorHandler(func(err error) (int, any) {
+		var e *BlogResponse
+		switch {
+		case errors.As(err, &e):
+			return http.StatusOK, e.Response(false, e.Code, e.Msg)
+		default:
+			return http.StatusInternalServerError, "Internal Server Error"
 		}
 	})
-
+	g := engine.Group("user")
+	engine.Logger.Level = myLog.LevelError
+	engine.Logger.Formatter = &myLog.TextFormatter{}
+	//engine.Logger.SetLogPath("./log")
 	g.Get("/get", func(ctx *web.Context) {
-		fmt.Println("测试get方法")
-		fmt.Fprintf(ctx.W, "测试get方法")
-	}, Log)
+		err := login()
+		ctx.HandlerWithError(http.StatusOK, &User{}, err)
+
+	})
 	g.Get("/hello", func(ctx *web.Context) {
 		err := ctx.HTML(http.StatusOK, "<h1>你好 go微服务框架</h1>")
 		if err != nil {
@@ -130,15 +171,16 @@ func main() {
 			log.Println(err)
 		}
 	})
-	logger := myLog.Default()
-	logger.Level = myLog.LevelInfo
+
 	g.Post("/xmlParam", func(ctx *web.Context) {
+		a := 1
+		b := 0
+		c := a / b
+		fmt.Sprintf(string(c))
 		user := &User{}
 		//user := User{}
 		err := ctx.BindXML(user)
-		logger.Debug("我是Debug")
-		logger.Info("我是Info")
-		logger.Error("我是Error")
+
 		if err == nil {
 			err := ctx.JSON(http.StatusOK, user)
 			if err != nil {

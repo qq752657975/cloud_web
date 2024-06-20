@@ -1,8 +1,7 @@
-package log
+package web
 
 import (
 	"fmt"
-	"github.com/ygb616/web"
 	"io"
 	"net"
 	"net/http"
@@ -29,8 +28,15 @@ const (
 	reset     = "\033[0m"
 )
 
-var IsDisplayColor = true
 var DefaultWriter io.Writer = os.Stdout
+
+type LoggingConfig struct {
+	Formatter LoggerFormatter
+	out       io.Writer
+	IsColor   bool
+}
+
+type LoggerFormatter = func(params *LogFormatterParams) string
 
 type LogFormatterParams struct {
 	Request        *http.Request
@@ -43,86 +49,6 @@ type LogFormatterParams struct {
 	IsDisplayColor bool
 }
 
-type LoggerFormatter func(params LogFormatterParams) string
-
-var defaultLogFormatter = func(params LogFormatterParams) string {
-	statusCodeColor := params.StatusCodeColor()
-	resetColor := params.ResetColor()
-	if params.Latency > time.Minute {
-		params.Latency = params.Latency.Truncate(time.Second)
-	}
-	if params.IsDisplayColor {
-		return fmt.Sprintf("%s [web] %s |%s %v %s| %s %3d %s |%s %13v %s| %15s  |%s %-7s %s  %s %#v %s \n",
-			yellow, resetColor, blue, params.TimeStamp.Format("2006/01/02 - 15:04:05"), resetColor,
-			statusCodeColor, params.StatusCode, resetColor,
-			red, params.Latency, resetColor,
-			params.ClientIP,
-			magenta, params.Method, resetColor,
-			cyan, params.Path, resetColor,
-		)
-	}
-	return fmt.Sprintf("[msgo] %v | %3d | %13v | %15s |%-7s %#v \n",
-		params.TimeStamp.Format("2006/01/02 - 15:04:05"),
-		params.StatusCode,
-		params.Latency, params.ClientIP, params.Method, params.Path,
-	)
-}
-
-type LoggingConfig struct {
-	Formatter LoggerFormatter
-	out       io.Writer
-}
-
-func LoggingWithConfig(conf LoggingConfig, next web.HandlerFunc) web.HandlerFunc {
-	_ = fmt.Sprintf("%#v", red)
-	formatter := conf.Formatter
-	if formatter == nil {
-		formatter = defaultLogFormatter
-	}
-	out := conf.out
-	if out == nil {
-		out = DefaultWriter
-	}
-	return func(ctx *web.Context) {
-		param := LogFormatterParams{
-			Request:        ctx.R,
-			IsDisplayColor: IsDisplayColor,
-		}
-		// Start timer
-		start := time.Now()
-		path := ctx.R.URL.Path
-		raw := ctx.R.URL.RawQuery
-		//执行业务
-		next(ctx)
-		// stop timer
-		stop := time.Now()
-		latency := stop.Sub(start)
-		ip, _, _ := net.SplitHostPort(strings.TrimSpace(ctx.R.RemoteAddr))
-		clientIP := net.ParseIP(ip)
-		method := ctx.R.Method
-		statusCode := ctx.StatusCode
-
-		if raw != "" {
-			path = path + "?" + raw
-		}
-
-		param.ClientIP = clientIP
-		param.TimeStamp = stop
-		param.Latency = latency
-		param.StatusCode = statusCode
-		param.Method = method
-		param.Path = path
-		_, err := fmt.Fprint(out, formatter(param))
-		if err != nil {
-			fmt.Printf("Logging error: %v\n", err)
-		}
-	}
-}
-
-func (p *LogFormatterParams) ResetColor() string {
-	return reset
-}
-
 func (p *LogFormatterParams) StatusCodeColor() string {
 	code := p.StatusCode
 	switch code {
@@ -133,6 +59,77 @@ func (p *LogFormatterParams) StatusCodeColor() string {
 	}
 }
 
-func Logging(next web.HandlerFunc) web.HandlerFunc {
+func (p *LogFormatterParams) ResetColor() string {
+	return reset
+}
+
+var defaultFormatter = func(params *LogFormatterParams) string {
+	var statusCodeColor = params.StatusCodeColor()
+	var resetColor = params.ResetColor()
+	if params.Latency > time.Minute {
+		params.Latency = params.Latency.Truncate(time.Second)
+	}
+	if params.IsDisplayColor {
+		return fmt.Sprintf("%s [web] %s |%s %v %s| %s %3d %s |%s %13v %s| %15s  |%s %-7s %s %s %#v %s \n",
+			yellow, resetColor, blue, params.TimeStamp.Format("2006/01/02 - 15:04:05"), resetColor,
+			statusCodeColor, params.StatusCode, resetColor,
+			red, params.Latency, resetColor,
+			params.ClientIP,
+			magenta, params.Method, resetColor,
+			cyan, params.Path, resetColor,
+		)
+	}
+	return fmt.Sprintf("[web] %v | %3d | %13v | %15s |%-7s %#v",
+		params.TimeStamp.Format("2006/01/02 - 15:04:05"),
+		params.StatusCode,
+		params.Latency, params.ClientIP, params.Method, params.Path,
+	)
+
+}
+
+func LoggingWithConfig(conf LoggingConfig, next HandlerFunc) HandlerFunc {
+	formatter := conf.Formatter
+	if formatter == nil {
+		formatter = defaultFormatter
+	}
+	out := conf.out
+	displayColor := false
+	if out == nil {
+		out = DefaultWriter
+		displayColor = true
+	}
+	return func(ctx *Context) {
+		r := ctx.R
+		param := &LogFormatterParams{
+			Request:        r,
+			IsDisplayColor: displayColor,
+		}
+		// Start timer
+		start := time.Now()
+		path := r.URL.Path
+		raw := r.URL.RawQuery
+		next(ctx)
+		stop := time.Now()
+		latency := stop.Sub(start)
+		ip, _, _ := net.SplitHostPort(strings.TrimSpace(ctx.R.RemoteAddr))
+		clientIP := net.ParseIP(ip)
+		method := r.Method
+		statusCode := ctx.StatusCode
+
+		if raw != "" {
+			path = path + "?" + raw
+		}
+
+		param.TimeStamp = stop
+		param.StatusCode = statusCode
+		param.Latency = latency
+		param.Path = path
+		param.ClientIP = clientIP
+		param.Method = method
+
+		fmt.Fprint(out, formatter(param))
+	}
+}
+func Logging(next HandlerFunc) HandlerFunc {
 	return LoggingWithConfig(LoggingConfig{}, next)
 }

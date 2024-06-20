@@ -3,7 +3,9 @@ package web
 import (
 	"errors"
 	"github.com/ygb616/web/binding"
+	myLog "github.com/ygb616/web/log"
 	"github.com/ygb616/web/render"
+	"github.com/ygb616/web/util"
 	"html/template"
 	"io"
 	"log"
@@ -25,6 +27,7 @@ type Context struct {
 	DisallowUnknownFields bool
 	IsValidate            bool
 	StatusCode            int
+	Logger                *myLog.Logger
 }
 
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
@@ -218,7 +221,7 @@ func (c *Context) File(filename string) {
 }
 
 func (c *Context) FileAttachment(filepath, filename string) {
-	if isASCII(filename) {
+	if util.IsASCII(filename) {
 		c.W.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 	} else {
 		c.W.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+url.QueryEscape(filename))
@@ -282,4 +285,17 @@ func (c *Context) ShouldBind(data any, bind binding.Binding) error {
 
 func (c *Context) BindXML(data any) error {
 	return c.MustBindWith(data, binding.XML)
+}
+
+func (c *Context) Fail(code int, msg string) {
+	c.String(code, msg)
+}
+
+func (c *Context) HandlerWithError(code int, obj any, err error) {
+	if err != nil {
+		statusCode, data := c.E.errorHandler(err)
+		_ = c.JSON(statusCode, data)
+		return
+	}
+	_ = c.JSON(code, obj)
 }

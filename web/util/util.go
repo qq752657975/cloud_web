@@ -1,6 +1,8 @@
-package web
+package util
 
 import (
+	"os"
+	"reflect"
 	"strings"
 	"unicode"
 	"unsafe"
@@ -19,7 +21,7 @@ func SubStringLast(str string, substr string) string {
 	return str[index+len:]
 }
 
-func isASCII(s string) bool {
+func IsASCII(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] > unicode.MaxASCII {
 			return false
@@ -35,4 +37,19 @@ func StringToBytes(s string) []byte {
 			Cap int
 		}{s, len(s)},
 	))
+}
+
+func IsMap(v interface{}) bool {
+	return reflect.TypeOf(v).Kind() == reflect.Map
+}
+
+func Exists(path string) bool {
+	_, err := os.Stat(path) //os.Stat获取文件信息
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
 }
