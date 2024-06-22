@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"github.com/ygb616/web"
 	myLog "github.com/ygb616/web/log"
+	"github.com/ygb616/web/pool"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 )
 
 type BlogResponse struct {
@@ -61,6 +64,11 @@ func Log(next web.HandlerFunc) web.HandlerFunc {
 
 func main() {
 	engine := web.Default()
+	auth := &web.Accounts{
+		Users: make(map[string]string),
+	}
+	auth.Users["ygb"] = "123456"
+	engine.Use(auth.BasicAuth)
 	engine.RegisterErrorHandler(func(err error) (int, any) {
 		var e *BlogResponse
 		switch {
@@ -190,6 +198,45 @@ func main() {
 			log.Println(err)
 		}
 	})
+	p, _ := pool.NewPool(5)
+	g.Post("/pool", func(ctx *web.Context) {
+		currentTime := time.Now().UnixMilli()
+		var wg sync.WaitGroup
+		wg.Add(5)
+		p.Submit(func() {
+			defer func() {
+				wg.Done()
+			}()
+			fmt.Println("1111111")
+			//panic("这是1111的panic")
+			time.Sleep(3 * time.Second)
+
+		})
+		p.Submit(func() {
+			fmt.Println("22222222")
+			time.Sleep(3 * time.Second)
+			wg.Done()
+		})
+		p.Submit(func() {
+			fmt.Println("33333333")
+			time.Sleep(3 * time.Second)
+			wg.Done()
+		})
+		p.Submit(func() {
+			fmt.Println("44444")
+			time.Sleep(3 * time.Second)
+			wg.Done()
+		})
+		p.Submit(func() {
+			fmt.Println("55555555")
+			time.Sleep(3 * time.Second)
+			wg.Done()
+		})
+		wg.Wait()
+		fmt.Printf("time: %v \n", time.Now().UnixMilli()-currentTime)
+		ctx.JSON(http.StatusOK, "success")
+	})
 
 	engine.Run(8111)
+	//engine.RunTLS(":8118", "key/server.pem", "key/server.key")
 }

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 const defaultMultipartMemory = 30 << 20 //30M
@@ -28,6 +29,8 @@ type Context struct {
 	IsValidate            bool
 	StatusCode            int
 	Logger                *myLog.Logger
+	Keys                  map[string]any
+	mu                    sync.RWMutex
 }
 
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
@@ -298,4 +301,23 @@ func (c *Context) HandlerWithError(code int, obj any, err error) {
 		return
 	}
 	_ = c.JSON(code, obj)
+}
+
+// Set 方法将键值对存储在 Context 中
+func (c *Context) Set(key string, value string) {
+	c.mu.Lock() // 加写锁，防止并发写入
+	if c.Keys == nil {
+		c.Keys = make(map[string]any) // 如果 Keys 为空，初始化它
+	}
+
+	c.Keys[key] = value // 将键值对存储在 Keys 中
+	c.mu.Unlock()       // 释放写锁
+}
+
+// Get 方法根据键获取值，并返回值和是否存在的布尔值
+func (c *Context) Get(key string) (value any, exists bool) {
+	c.mu.RLock()                // 加读锁，允许并发读取
+	value, exists = c.Keys[key] // 从 Keys 中获取值
+	c.mu.RUnlock()              // 释放读锁
+	return                      // 返回值和是否存在
 }

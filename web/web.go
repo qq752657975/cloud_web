@@ -163,7 +163,7 @@ func Default() *Engine {
 }
 
 func (e *Engine) Use(middles ...MiddlewareFunc) {
-	e.Middles = middles
+	e.Middles = append(e.Middles, middles...)
 }
 
 func (e *Engine) allocateContext() any {
@@ -254,4 +254,23 @@ func (c *Context) ErrorHandle(err error) {
 
 func (e *Engine) RegisterErrorHandler(err ErrorHandler) {
 	e.errorHandler = err
+}
+
+func (e *Engine) RunTLS(addr, certFile, keyFile string) {
+	err := http.ListenAndServeTLS(addr, certFile, keyFile, e.Handler())
+	// 调用 http.ListenAndServeTLS 开启一个 HTTPS 服务
+	// 参数：
+	// addr：服务监听的地址（如 ":443"）
+	// certFile：证书文件路径
+	// keyFile：私钥文件路径
+	// e.Handler()：用于处理 HTTP 请求的处理器
+
+	if err != nil {
+		log.Fatal(err)
+		// 如果出现错误，记录错误并终止程序
+	}
+}
+
+func (e *Engine) Handler() http.Handler {
+	return e
 }
