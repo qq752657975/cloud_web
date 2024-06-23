@@ -185,10 +185,6 @@ func main() {
 	})
 
 	g.Post("/xmlParam", func(ctx *web.Context) {
-		a := 1
-		b := 0
-		c := a / b
-		fmt.Sprintf(string(c))
 		user := &User{}
 		//user := User{}
 		err := ctx.BindXML(user)

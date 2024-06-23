@@ -2,9 +2,9 @@
 path="./log"
 [template]
 pattern="tpl/*.html"
-[db]
-mysql.username=""
-mysql.password=""
+[mysql]
+username="111111111"
+password=""
 mysql.url=""
 [pool]
 cap=10

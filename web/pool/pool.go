@@ -45,7 +45,7 @@ type Pool struct {
 // NewPoolConf 从配置文件中创建一个新的连接池
 func NewPoolConf() (*Pool, error) {
 	// 从全局配置 config.Conf 中获取连接池配置 "c"
-	c, ok := config.Conf.Pool["c"]
+	c, ok := config.GetToml().Pool["c"]
 	if !ok {
 		// 如果配置中没有找到 "c"，返回错误
 		return nil, errors.New("c config not exist")

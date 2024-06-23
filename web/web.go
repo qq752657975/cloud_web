@@ -164,7 +164,7 @@ func Default() *Engine {
 	engine.Logger = myLog.Default()
 
 	// 从配置中获取日志路径，如果存在则设置日志路径
-	logPath, ok := config.Conf.Log["path"]
+	logPath, ok := config.GetToml().Log["path"]
 	if ok {
 		engine.Logger.SetLogPath(logPath.(string))
 	}
@@ -295,7 +295,7 @@ func (e *Engine) Handler() http.Handler {
 // LoadTemplateGlobByConf 从配置文件中加载模板文件
 func (e *Engine) LoadTemplateGlobByConf() {
 	// 从配置中获取模板文件的匹配模式
-	pattern, ok := config.Conf.Template["pattern"]
+	pattern, ok := config.GetToml().Template["pattern"]
 	if !ok {
 		// 如果配置中没有找到 pattern，抛出异常
 		panic("config pattern not exist")
