@@ -1,3 +1,10 @@
-# 默认读取conf下的app.conf 或者支持命令行 -log.path指定
 [log]
 path="./log"
+[template]
+pattern="tpl/*.html"
+[db]
+mysql.username=""
+mysql.password=""
+mysql.url=""
+[pool]
+cap=10

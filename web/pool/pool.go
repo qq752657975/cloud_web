@@ -3,6 +3,7 @@ package pool
 import (
 	"errors"
 	"fmt"
+	"github.com/ygb616/web/config"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,6 +40,18 @@ type Pool struct {
 	cond *sync.Cond
 	//PanicHandler
 	PanicHandler func()
+}
+
+// NewPoolConf 从配置文件中创建一个新的连接池
+func NewPoolConf() (*Pool, error) {
+	// 从全局配置 config.Conf 中获取连接池配置 "c"
+	c, ok := config.Conf.Pool["c"]
+	if !ok {
+		// 如果配置中没有找到 "c"，返回错误
+		return nil, errors.New("c config not exist")
+	}
+	// 调用 NewTimePool 函数创建一个新的连接池，使用从配置中获取的值作为参数
+	return NewTimePool(int(c.(int64)), DefaultExpire)
 }
 
 func NewPool(cap int) (*Pool, error) {

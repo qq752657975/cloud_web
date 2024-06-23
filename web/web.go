@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"github.com/ygb616/web/config"
 	myLog "github.com/ygb616/web/log"
 	"github.com/ygb616/web/render"
 	"github.com/ygb616/web/util"
@@ -154,11 +155,27 @@ func New() *Engine {
 	return engine
 }
 
+// Default 函数创建并返回一个默认配置的 Engine 实例
 func Default() *Engine {
+	// 创建一个新的 Engine 实例
 	engine := New()
+
+	// 设置 Logger 为默认日志记录器
 	engine.Logger = myLog.Default()
-	engine.Use(Recovery, Logging)
+
+	// 从配置中获取日志路径，如果存在则设置日志路径
+	logPath, ok := config.Conf.Log["path"]
+	if ok {
+		engine.Logger.SetLogPath(logPath.(string))
+	}
+
+	// 使用中间件 Logging 和 Recovery
+	engine.Use(Logging, Recovery)
+
+	// 设置 router 的 engine 字段为当前的 engine 实例
 	engine.router.engine = engine
+
+	// 返回配置好的 Engine 实例
 	return engine
 }
 
@@ -273,4 +290,18 @@ func (e *Engine) RunTLS(addr, certFile, keyFile string) {
 
 func (e *Engine) Handler() http.Handler {
 	return e
+}
+
+// LoadTemplateGlobByConf 从配置文件中加载模板文件
+func (e *Engine) LoadTemplateGlobByConf() {
+	// 从配置中获取模板文件的匹配模式
+	pattern, ok := config.Conf.Template["pattern"]
+	if !ok {
+		// 如果配置中没有找到 pattern，抛出异常
+		panic("config pattern not exist")
+	}
+	// 解析匹配模式下的所有模板文件，并将解析后的模板赋给 t
+	t := template.Must(template.New("").Funcs(e.funcMap).ParseGlob(pattern.(string)))
+	// 设置 HTML 模板
+	e.SetHtmlTemplate(t)
 }
