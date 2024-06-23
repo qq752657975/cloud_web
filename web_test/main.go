@@ -6,6 +6,7 @@ import (
 	"github.com/ygb616/web"
 	myLog "github.com/ygb616/web/log"
 	"github.com/ygb616/web/pool"
+	"github.com/ygb616/web/token"
 	"log"
 	"net/http"
 	"sync"
@@ -64,11 +65,11 @@ func Log(next web.HandlerFunc) web.HandlerFunc {
 
 func main() {
 	engine := web.Default()
-	auth := &web.Accounts{
-		Users: make(map[string]string),
-	}
-	auth.Users["ygb"] = "123456"
-	engine.Use(auth.BasicAuth)
+	//auth := &web.Accounts{
+	//	Users: make(map[string]string),
+	//}
+	//auth.Users["ygb"] = "123456"
+	//engine.Use(auth.BasicAuth)
 	engine.RegisterErrorHandler(func(err error) (int, any) {
 		var e *BlogResponse
 		switch {
@@ -78,10 +79,13 @@ func main() {
 			return http.StatusInternalServerError, "Internal Server Error"
 		}
 	})
-	g := engine.Group("user")
+	g := engine.Group("")
 	engine.Logger.Level = myLog.LevelError
 	engine.Logger.Formatter = &myLog.TextFormatter{}
 	//engine.Logger.SetLogPath("./log")
+	jh := &token.JwtHandler{Key: []byte("123456")}
+	//为特定的中间件 需要指定不进行拦截的请求
+	engine.Use(jh.AuthInterceptor)
 	g.Get("/get", func(ctx *web.Context) {
 		err := login()
 		ctx.HandlerWithError(http.StatusOK, &User{}, err)
@@ -235,6 +239,26 @@ func main() {
 		wg.Wait()
 		fmt.Printf("time: %v \n", time.Now().UnixMilli()-currentTime)
 		ctx.JSON(http.StatusOK, "success")
+	})
+
+	g.Get("/login", func(ctx *web.Context) {
+
+		jwt := &token.JwtHandler{}
+		jwt.Key = []byte("123456")
+		jwt.SendCookie = true
+		jwt.TimeOut = 10 * time.Minute
+		jwt.Authenticator = func(ctx *web.Context) (map[string]any, error) {
+			data := make(map[string]any)
+			data["userId"] = 1
+			return data, nil
+		}
+		jwtResponse, err := jwt.LoginHandler(ctx)
+		if err != nil {
+			log.Println(err)
+			ctx.JSON(http.StatusOK, err.Error())
+			return
+		}
+		ctx.JSON(http.StatusOK, jwtResponse)
 	})
 
 	engine.Run(8111)

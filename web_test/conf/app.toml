@@ -1,0 +1,3 @@
+# 默认读取conf下的app.conf 或者支持命令行 -log.path指定
+[log]
+path="./log"

@@ -31,6 +31,11 @@ type Context struct {
 	Logger                *myLog.Logger
 	Keys                  map[string]any
 	mu                    sync.RWMutex
+	sameSize              http.SameSite
+}
+
+func (c *Context) SetSameSize(site http.SameSite) {
+	c.sameSize = site
 }
 
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
@@ -304,7 +309,7 @@ func (c *Context) HandlerWithError(code int, obj any, err error) {
 }
 
 // Set 方法将键值对存储在 Context 中
-func (c *Context) Set(key string, value string) {
+func (c *Context) Set(key string, value any) {
 	c.mu.Lock() // 加写锁，防止并发写入
 	if c.Keys == nil {
 		c.Keys = make(map[string]any) // 如果 Keys 为空，初始化它
@@ -320,4 +325,24 @@ func (c *Context) Get(key string) (value any, exists bool) {
 	value, exists = c.Keys[key] // 从 Keys 中获取值
 	c.mu.RUnlock()              // 释放读锁
 	return                      // 返回值和是否存在
+}
+
+// SetCookie 在 HTTP 响应中设置一个 Cookie
+func (c *Context) SetCookie(name, value string, maxAge int, path, domain string, secure, httpOnly bool) {
+	// 如果未指定路径，则默认设置为 "/"
+	if path == "" {
+		path = "/"
+	}
+
+	// 调用 http.SetCookie 方法，在响应中添加一个新的 Cookie
+	http.SetCookie(c.W, &http.Cookie{
+		Name:     name,                   // Cookie 名称
+		Value:    url.QueryEscape(value), // Cookie 值，进行 URL 编码
+		MaxAge:   maxAge,                 // Cookie 的最大存活时间，单位为秒
+		Path:     path,                   // Cookie 的路径
+		Domain:   domain,                 // Cookie 的域名
+		SameSite: c.sameSize,             // Cookie 的 SameSite 属性，防止 CSRF 攻击
+		Secure:   secure,                 // 是否为安全 Cookie（仅通过 HTTPS 发送）
+		HttpOnly: httpOnly,               // 是否将 Cookie 设置为 HTTPOnly（客户端 JavaScript 无法访问）
+	})
 }
