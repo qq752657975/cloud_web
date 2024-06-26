@@ -1,35 +1,60 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/ygb616/goodscenter/api"
+	"github.com/ygb616/goodscenter/model"
+	"github.com/ygb616/goodscenter/service"
 	"github.com/ygb616/web"
 	"github.com/ygb616/web/rpc"
-	"log"
+	"net/http"
 )
 
 func main() {
 	engine := web.Default()
 	client := rpc.NewHttpClient()
-	group := engine.Group("order")
-	group.Get("find", func(ctx *web.Context) {
-		params := make(map[string]any)
-		params["id"] = 1000
-		params["name"] = "张三"
-		body, err := client.Get("http://localhost:9002/order/find", params)
+	g := engine.Group("order")
+	client.RegisterHttpService("goodsService", &service.GoodsService{})
+	g.Get("/find", func(ctx *web.Context) {
+		//查询商品
+		session := client.Session()
+		v := &model.Result{}
+		bytes, err := session.Do("goods", "Find").(*service.GoodsService).Find(nil)
 		if err != nil {
-			panic(err)
+			ctx.Logger.Error(err)
 		}
-		log.Println(string(body))
+		fmt.Println(string(bytes))
+		json.Unmarshal(bytes, v)
+		ctx.JSON(http.StatusOK, v)
 	})
 
-	group.Post("find", func(ctx *web.Context) {
-		params := make(map[string]any)
-		params["id"] = 1000
-		params["name"] = "张三"
-		body, err := client.PostJson("http://localhost:9002/order/find", params)
-		if err != nil {
-			panic(err)
-		}
-		log.Println(string(body))
+	//g.Get("/findGrpc", func(ctx *web.Context) {
+	//	//查询商品
+	//	var serviceHost = "127.0.0.1:9111"
+	//	conn, err := grpc.Dial(serviceHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	//	if err != nil {
+	//		fmt.Println(err)
+	//	}
+	//	defer conn.Close()
+	//
+	//	client := api.NewGoodsApiClient(conn)
+	//	rsp, err := client.Find(context.TODO(), &api.GoodsRequest{})
+	//
+	//	if err != nil {
+	//		fmt.Println(err)
+	//	}
+	//	ctx.JSON(http.StatusOK, rsp)
+	//})
+	g.Get("/findGrpc", func(ctx *web.Context) {
+		config := rpc.DefaultGrpcClientConfig()
+		config.Address = "localhost:9111"
+		client, _ := rpc.NewGrpcClient(config)
+		defer client.Conn.Close()
+		goodsApiClient := api.NewGoodsApiClient(client.Conn)
+		goodsResponse, _ := goodsApiClient.Find(context.Background(), &api.GoodsRequest{})
+		ctx.JSON(http.StatusOK, goodsResponse)
 	})
 
 	engine.Run(9003)

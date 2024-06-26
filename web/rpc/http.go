@@ -9,8 +9,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
+)
+
+const (
+	GET      = "GET"
+	POSTForm = "POST_FORM"
+	POSTJson = "POST_JSON"
+	HTTP     = "http"
+	HTTPS    = "https"
 )
 
 // MsHttpClient 结构体定义了一个自定义的 HTTP 客户端
@@ -22,6 +31,19 @@ type MsHttpClient struct {
 // MsService 接口定义了一个服务应该实现的方法
 type MsService interface {
 	Env() HttpConfig // 定义一个 Env 方法，返回 HttpConfig 类型
+}
+
+func (c *MsHttpClient) RegisterHttpService(name string, service MsService) {
+	c.serviceMap[name] = service
+}
+
+// Session 方法用于创建一个新的 MsHttpClientSession 实例
+func (c *MsHttpClient) Session() *MsHttpClientSession {
+	// 返回一个新的 MsHttpClientSession 实例，初始化时包含当前的 MsHttpClient 实例
+	return &MsHttpClientSession{
+		c,   // 将当前的 MsHttpClient 实例传递给 MsHttpClientSession
+		nil, // 初始化其他字段为 nil
+	}
 }
 
 // HttpConfig 结构体定义了 HTTP 服务的配置信息
@@ -169,4 +191,79 @@ func (c *MsHttpClient) PostJson(url string, args map[string]any) ([]byte, error)
 		return nil, err // 返回错误
 	}
 	return c.handleResponse(req) // 处理请求并返回响应
+}
+
+// Do 方法用于根据服务名称和方法名称查找服务，并为该方法设置具体的请求处理函数
+func (c *MsHttpClientSession) Do(service string, method string) MsService {
+	msService, ok := c.serviceMap[service] // 从服务映射表中查找指定服务
+	if !ok {                               // 如果服务不存在
+		panic(errors.New("service not found")) // 抛出服务未找到的错误
+	}
+
+	// 获取服务的类型和值
+	t := reflect.TypeOf(msService)   // 获取服务的类型
+	v := reflect.ValueOf(msService)  // 获取服务的值
+	if t.Kind() != reflect.Pointer { // 如果服务不是指针类型
+		panic(errors.New("service not pointer")) // 抛出错误，服务必须是指针类型
+	}
+	tVar := t.Elem() // 获取指针指向的元素类型
+	vVar := v.Elem() // 获取指针指向的元素值
+
+	// 查找方法的字段索引
+	fieldIndex := -1                       // 初始化字段索引为 -1
+	for i := 0; i < tVar.NumField(); i++ { // 遍历服务的所有字段
+		name := tVar.Field(i).Name // 获取字段名称
+		if name == method {        // 如果字段名称与方法名称匹配
+			fieldIndex = i // 设置字段索引
+			break          // 跳出循环
+		}
+	}
+	if fieldIndex == -1 { // 如果未找到字段
+		panic(errors.New("method not found")) // 抛出方法未找到的错误
+	}
+
+	// 获取字段的标签信息
+	tag := tVar.Field(fieldIndex).Tag // 获取字段的标签
+	rpcInfo := tag.Get("msrpc")       // 获取 msrpc 标签的值
+	if rpcInfo == "" {                // 如果标签为空
+		panic(errors.New("not msrpc tag")) // 抛出错误，标签不存在
+	}
+	split := strings.Split(rpcInfo, ",") // 按逗号分割标签信息
+	if len(split) != 2 {                 // 如果分割后的长度不为2
+		panic(errors.New("tag msrpc not valid")) // 抛出错误，标签格式无效
+	}
+	methodType := split[0]        // 获取请求方法类型
+	path := split[1]              // 获取请求路径
+	httpConfig := msService.Env() // 获取服务的 HTTP 配置信息
+
+	// 定义请求处理函数
+	f := func(args map[string]any) ([]byte, error) {
+		if methodType == GET { // 如果请求方法类型为 GET
+			return c.Get(httpConfig.Prefix()+path, args) // 调用 Get 方法
+		}
+		if methodType == POSTForm { // 如果请求方法类型为 POST 表单
+			return c.PostForm(httpConfig.Prefix()+path, args) // 调用 PostForm 方法
+		}
+		if methodType == POSTJson { // 如果请求方法类型为 POST JSON
+			return c.PostJson(httpConfig.Prefix()+path, args) // 调用 PostJson 方法
+		}
+		return nil, errors.New("no match method type") // 如果没有匹配的方法类型，返回错误
+	}
+	fValue := reflect.ValueOf(f)       // 获取请求处理函数的值
+	vVar.Field(fieldIndex).Set(fValue) // 为服务的方法字段设置请求处理函数
+	return msService                   // 返回服务实例
+}
+
+// Prefix 方法用于生成带有协议、主机和端口的 URL 前缀
+func (c HttpConfig) Prefix() string {
+	if c.Protocol == "" { // 如果协议为空
+		c.Protocol = HTTP // 将协议设置为 HTTP
+	}
+	switch c.Protocol { // 根据协议选择生成相应的 URL 前缀
+	case HTTP: // 如果协议是 HTTP
+		return fmt.Sprintf("http://%s:%d", c.Host, c.Port) // 返回 HTTP 协议的 URL 前缀
+	case HTTPS: // 如果协议是 HTTPS
+		return fmt.Sprintf("https://%s:%d", c.Host, c.Port) // 返回 HTTPS 协议的 URL 前缀
+	}
+	return "" // 如果协议不匹配，返回空字符串
 }
