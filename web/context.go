@@ -346,3 +346,7 @@ func (c *Context) SetCookie(name, value string, maxAge int, path, domain string,
 		HttpOnly: httpOnly,               // 是否将 Cookie 设置为 HTTPOnly（客户端 JavaScript 无法访问）
 	})
 }
+
+func (c *Context) GetHeader(key string) string {
+	return c.R.Header.Get(key)
+}

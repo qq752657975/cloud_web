@@ -3,12 +3,16 @@ package web
 import (
 	"fmt"
 	"github.com/ygb616/web/config"
+	"github.com/ygb616/web/gateway"
 	myLog "github.com/ygb616/web/log"
+	"github.com/ygb616/web/register"
 	"github.com/ygb616/web/render"
 	"github.com/ygb616/web/util"
 	"html/template"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"sync"
 )
@@ -130,14 +134,22 @@ type routerGroup struct {
 
 type ErrorHandler func(err error) (int, any)
 
+// Engine 结构体定义
 type Engine struct {
-	*router
-	funcMap      template.FuncMap
-	HTMLRender   render.HTMLRender
-	pool         sync.Pool
-	Logger       *myLog.Logger
-	Middles      []MiddlewareFunc
-	errorHandler ErrorHandler
+	*router                                      // 内嵌的 router，用于路由功能
+	funcMap          template.FuncMap            // 模板函数映射，用于渲染 HTML 模板
+	HTMLRender       render.HTMLRender           // HTML 渲染器，用于渲染 HTML
+	pool             sync.Pool                   // 协程池，用于复用对象，减少内存分配
+	Logger           *myLog.Logger               // 日志记录器，用于记录日志
+	Middles          []MiddlewareFunc            // 中间件函数列表，用于处理请求和响应的中间件
+	errorHandler     ErrorHandler                // 错误处理器，用于处理错误
+	OpenGateway      bool                        // 是否开启网关功能
+	gatewayConfigs   []gateway.GWConfig          // 网关配置列表，用于配置网关
+	gatewayTreeNode  *gateway.TreeNode           // 网关树节点，用于组织网关路由
+	gatewayConfigMap map[string]gateway.GWConfig // 网关配置映射表，保存配置名称与配置实例的映射关系
+	RegisterType     string                      // 注册中心类型（如 Nacos 或 Etcd）
+	RegisterOption   register.Option             // 注册中心选项配置
+	RegisterCli      register.MsRegister         // 服务注册中心接口
 }
 
 func New() *Engine {
@@ -226,6 +238,56 @@ func (e *Engine) Run(port int) {
 }
 
 func (e *Engine) httpRequestHandler(ctx *Context, w http.ResponseWriter, r *http.Request) {
+	if e.OpenGateway {
+		// 如果开启了网关功能
+		// 请求过来，具体转发到哪？
+		path := r.URL.Path                  // 获取请求的URL路径
+		node := e.gatewayTreeNode.Get(path) // 根据路径在网关树中获取对应节点
+		if node == nil {
+			ctx.W.WriteHeader(http.StatusNotFound)             // 如果没有找到对应节点，返回404状态码
+			fmt.Fprintln(ctx.W, ctx.R.RequestURI+" not found") // 返回未找到的请求URI
+			return
+		}
+		gwConfig := e.gatewayConfigMap[node.GwName]               // 根据节点名称获取网关配置
+		gwConfig.Header(ctx.R)                                    // 设置请求头信息
+		addr, err := e.RegisterCli.GetValue(gwConfig.ServiceName) // 从注册中心获取服务地址
+		if err != nil {
+			ctx.W.WriteHeader(http.StatusInternalServerError) // 如果获取服务地址出错，返回500状态码
+			fmt.Fprintln(ctx.W, err.Error())                  // 返回错误信息
+			return
+		}
+		target, err := url.Parse(fmt.Sprintf("http://%s%s", addr, path)) // 解析目标地址
+		if err != nil {
+			ctx.W.WriteHeader(http.StatusInternalServerError) // 如果解析目标地址出错，返回500状态码
+			fmt.Fprintln(ctx.W, err.Error())                  // 返回错误信息
+			return
+		}
+		// 网关的处理逻辑
+		director := func(req *http.Request) {
+			req.Host = target.Host         // 设置请求的Host
+			req.URL.Host = target.Host     // 设置请求URL的Host
+			req.URL.Path = target.Path     // 设置请求URL的Path
+			req.URL.Scheme = target.Scheme // 设置请求URL的Scheme
+			if _, ok := req.Header["User-Agent"]; !ok {
+				req.Header.Set("User-Agent", "") // 如果请求头中没有User-Agent，设置为空字符串
+			}
+		}
+		response := func(response *http.Response) error {
+			log.Println("响应修改") // 响应修改日志
+			return nil
+		}
+		handler := func(writer http.ResponseWriter, request *http.Request, err error) {
+			log.Println(err)    // 打印错误日志
+			log.Println("错误处理") // 错误处理日志
+		}
+		proxy := httputil.ReverseProxy{
+			Director:       director, // 设置请求重定向逻辑
+			ModifyResponse: response, // 设置响应修改逻辑
+			ErrorHandler:   handler,  // 设置错误处理逻辑
+		}
+		proxy.ServeHTTP(w, r) // 反向代理处理请求
+		return                // 返回，结束当前函数执行
+	}
 	// 获取请求的方法 (GET, POST, etc.)
 	method := r.Method
 	// 遍历所有路由组
@@ -304,4 +366,13 @@ func (e *Engine) LoadTemplateGlobByConf() {
 	t := template.Must(template.New("").Funcs(e.funcMap).ParseGlob(pattern.(string)))
 	// 设置 HTML 模板
 	e.SetHtmlTemplate(t)
+}
+
+func (e *Engine) SetGatewayConfig(configs []gateway.GWConfig) {
+	e.gatewayConfigs = configs
+	//把这个路径 存储起来 访问的时候 去匹配这里面的路由 如果匹配，就拿出来相应的匹配结果
+	for _, v := range e.gatewayConfigs {
+		e.gatewayTreeNode.Put(v.Path, v.Name)
+		e.gatewayConfigMap[v.Name] = v
+	}
 }
